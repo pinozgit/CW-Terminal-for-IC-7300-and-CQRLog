@@ -1,0 +1,169 @@
+' Gambas module file
+
+' Gambas module file
+' This module has been borrowed from dfhLog- Hamradio LogBook
+'     Adapted from KLog's class "world" in C++ by Jaime Robles <http://jaime.robles.es/klog/>
+
+'     Copyright (C) 2009  Jesús Guardón, EA7DFH <ea7dfh@gmail.com>
+' 
+'     This program is free software: you can redistribute it and/or modify
+'     it under the terms of the GNU General Public License as published by
+'     the Free Software Foundation, either version 3 of the License, or
+'     (at your option) any later version.
+' 
+'     This program is distributed in the hope that it will be useful,
+'     but WITHOUT ANY WARRANTY; without even the implied warranty of
+'     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+'     GNU General Public License for more details.
+' 
+'     You should have received a copy of the GNU General Public License
+'     along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
+' private
+
+Private ent As Cty
+Private file As File
+Private prefix As String
+Private qrz As String
+Private prefixa As String
+Private prefixab As String 
+Private cqzone As Integer
+Private ituzone As Integer
+Private number As Integer
+Private nmap As Collection
+Private map As Collection
+
+'public
+Public listDxcc As New Collection
+Public $aListDxcc As New String[] ' aux array OF entities
+Public created As Boolean
+
+
+Public Sub init()
+    Dim data, linea As String
+    Dim lines, fields As String[]
+    Dim finalPrefix As String
+    Dim prefixes As String[]
+    lines = New String[]
+    fields = New String[]
+    prefixes = New String[]
+    nmap = New Collection 'Coleccion de clases nº/cty
+    map = New Collection  'Coleccion de prefijos/nº 
+    prefix = Null
+    cqzone = 0
+    ituzone = 0
+    created = False
+    number = 1
+  
+  'create local dir
+    If Not Exist(User.Home &/ ".config/cwterminal/cty.dat") Then
+  
+        Try Mkdir User.Home &/ ".config/cwterminal/"
+        Try Copy "data/cty.dat" To User.Home &/ ".config/cwterminal/cty.dat"
+        
+    Endif 
+  
+    file = Open User.Home &/ ".config/cwterminal/cty.dat" For Input  
+  
+    Read #file, data, Lof(file)
+  
+    lines = Split(data, ";", "\r\n", True)
+   
+        For Each linea In lines  
+              ent = New Cty
+              
+              fields = Split(linea, ":")
+              
+              cqzone = CInt(fields[1])
+              ituzone = CInt(fields[2])
+              ent.number = number
+              ent.entity = Trim$(fields[0])
+              ent.pfx = Trim$(fields[7])
+              ent.cqz = cqzone
+              ent.lon = CFloat(fields[5]) * -1  'la longitud viene como W -> positivo
+              ent.lat = CFloat(fields[4])
+              ent.continent = Trim$(fields[3])
+              ent.ituz = ituzone
+              ent.tz = CFloat(fields[6])
+              ent.pfxs = Trim$(fields[8])
+              nmap.Add(ent, CStr(number)) 'coleccion de entidades
+              listDxcc.Add(ent.entity, CStr(number)) 'coleccion de nombre entidad, numero
+              $aListDxcc.Add(ent.entity) ' aux array OF entities
+              prefixes = Split(ent.pfxs, ",", "\r\n", True)
+                
+              
+                For Each finalPrefix In prefixes
+                    finalPrefix = Trim$(Replace$(finalPrefix, "=", ""))
+                    If InStr(finalPrefix, "(") > 1 Then finalPrefix = Left(finalPrefix, InStr(finalPrefix, "(") - 1)
+                    If InStr(finalPrefix, "[") > 1 Then finalPrefix = Left(finalPrefix, InStr(finalPrefix, "[") - 1)
+                    
+                    map.Add(number, finalPrefix) 'coleccion de prefijos/nº ent
+'                     DEBUG number;; finalPrefix
+                    'TODO manejo de prefijos especiales con diferente zona(cq)[itu]
+                Next
+              
+            Inc number
+        Next   
+  
+    Close file
+    created = True 
+    Catch 
+            Debug Error.Text, Error.Where 
+End
+    'devuelve una clase cty por cadena completa de indicativo
+Public Function findEntity(call As String) As Cty
+    Dim y As Integer
+    Dim cad As String
+    call = Trim$(Upper(call))
+    
+        If InStr(call, "/") > 0 Then 
+        prefixa = Left(call, InStr(call, "/") - 1)        
+        prefixab = Right(call, Len(call) - InStr(call, "/"))     
+        Debug prefixa;; prefixab   
+            If Len(prefixa) < Len(prefixab) Then 
+                call = prefixa
+              Else
+                If prefixab <> "P" And prefixab <> "MM" And prefixab <> "B" And prefixab <> "M" And prefixab <> "QRP" And prefixab <> "AM" And prefixab <> "" &
+                    "0" And prefixab <> "1" And prefixab <> "2" And prefixab <> "3" And prefixab <> "4" And prefixab <> "5" And prefixab <> "6" & 
+                    "" And prefixab <> "7" And prefixab <> "8" And prefixab <> "9" Then 
+                    call = prefixab
+                Endif
+                  
+            Endif 
+        Endif 
+        'magic statement
+        For y = Len(call) To 1 Step -1
+             For Each cad In map
+             
+                  If Left(call, y) = map.Key Then 
+                  Debug call;; y;; map.Key;; map[map.Key];; nmap[map[map.Key]].entity
+                      Return nmap[map[map.Key]]
+                  Break 
+                  Endif
+             Next
+            
+        Next
+        
+        Catch 
+            Debug Error.Text, Error.Where
+  
+End
+
+
+    'devuelve el nº de entidad por prefijo dado
+Public Function giveEnt(tqrz As String) As Integer
+    qrz = tqrz
+        Return CInt(map[qrz])
+  
+End
+
+
+  'busca por numero en la colección map y devuelve la clase cty correspondiente
+Public Function getEntByNumb(numero As Integer) As Cty
+        
+        numero = CStr(numero)  
+        Return nmap[numero]    
+ 
+End 
+

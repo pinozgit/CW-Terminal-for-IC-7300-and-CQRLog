@@ -1,0 +1,346 @@
+# Gambas Form File 3.0
+
+{ Form Form
+  MoveScaled(55.6667,48,89,72)
+  Text = ("Client")
+  Resizable = False
+  { Panel2 Panel
+    MoveScaled(0,0,90,68)
+    Background = Color.LightForeground
+    { TxtData TextBox
+      MoveScaled(8,18,70,4)
+      Font = Font["DejaVu Sans Mono,14"]
+    }
+    { Button3 Button
+      MoveScaled(80,18,8,4)
+      Font = Font["9"]
+      Text = ("Send")
+    }
+    { TextIN TextArea
+      MoveScaled(8,8,70,10)
+      Font = Font["DejaVu Sans Mono,14"]
+      Wrap = True
+    }
+    { F1 Button
+      MoveScaled(2,23,8,4)
+      Font = Font["9"]
+      Tag = "1"
+      Text = ("CQ")
+    }
+    { CF1 Button
+      MoveScaled(2,27,8,4)
+      Font = Font["-3"]
+      Text = ("CQ DX")
+    }
+    { CWCall TextBox ginput
+      Name = "CWCall"
+      MoveScaled(8,1,16,4)
+      Font = Font["DejaVu Sans Mono,14"]
+      Tag = "1"
+      ToolTip = ("RETURN")
+    }
+    { cws TextBox ginput
+      Name = "cws"
+      MoveScaled(24,1,10,4)
+      Font = Font["DejaVu Sans Mono,14"]
+      Tag = "2"
+      ToolTip = ("RETURN")
+      Text = ("599")
+    }
+    { cwr TextBox ginput
+      Name = "cwr"
+      MoveScaled(34,1,9,4)
+      Font = Font["DejaVu Sans Mono,14"]
+      Tag = "3"
+      ToolTip = ("RETURN")
+      Text = ("599")
+    }
+    { cwname TextBox ginput
+      Name = "cwname"
+      MoveScaled(43,1,17,4)
+      Font = Font["DejaVu Sans Mono,14"]
+      Tag = "4"
+      ToolTip = ("RETURN")
+    }
+    { cwqth TextBox ginput
+      Name = "cwqth"
+      MoveScaled(61,1,17,4)
+      Font = Font["DejaVu Sans Mono,14"]
+      Tag = "5"
+    }
+    { zCWSpeed Slider
+      MoveScaled(3,9,2,10)
+      Enabled = False
+      MinValue = 5
+      MaxValue = 60
+      Value = 45
+    }
+    { Label1 Label
+      MoveScaled(2,19,5,3)
+      Font = Font["9"]
+      Text = ("WPM")
+    }
+    { Label2 Label
+      MoveScaled(13,5,6,2)
+      Font = Font["-3"]
+      Text = ("Call")
+    }
+    { cwlog Button
+      MoveScaled(80,1,8,5)
+      Font = Font["9"]
+      Text = ("Log")
+    }
+    { Label3 Label
+      MoveScaled(27,5,4,2)
+      Font = Font["-3"]
+      Text = ("Srst")
+    }
+    { Label4 Label
+      MoveScaled(35,5,4,2)
+      Font = Font["-3"]
+      Text = ("Rrst")
+    }
+    { Label5 Label
+      MoveScaled(48,5,5,2)
+      Font = Font["-3"]
+      Text = ("Name")
+    }
+    { Label6 Label
+      MoveScaled(67,5,5,2)
+      Font = Font["-3"]
+      Text = ("QTH")
+    }
+    { BClear Button
+      MoveScaled(80,8,8,4)
+      Font = Font["-2"]
+      Text = ("Clear")
+    }
+    { F2 Button
+      MoveScaled(10,23,8,4)
+      Font = Font["9"]
+      Text = ("QRZ")
+    }
+    { F3 Button
+      MoveScaled(18,23,8,4)
+      Font = Font["9"]
+      Text = ("AGN")
+    }
+    { F4 Button
+      MoveScaled(26,23,8,4)
+      Font = Font["9"]
+      Text = ("QSO")
+    }
+    { F5 Button
+      MoveScaled(35,23,8,4)
+      Font = Font["9"]
+      Tag = "5"
+      Text = ("Call")
+    }
+    { F6 Button
+      MoveScaled(43,23,8,4)
+      Font = Font["9"]
+      Text = ("QSO")
+    }
+    { F7 Button
+      MoveScaled(51,23,8,4)
+      Font = Font["9"]
+      Text = ("END")
+    }
+    { F8 Button
+      MoveScaled(59,23,8,4)
+      Font = Font["9"]
+      Text = ("TX")
+    }
+    { F9 Button
+      MoveScaled(70,23,8,4)
+      Font = Font["DejaVu Sans,-3"]
+    }
+    { F10 Button
+      MoveScaled(78,23,8,4)
+      Font = Font["9"]
+      Text = ("tu5NN")
+    }
+    { SpinRep SpinBox
+      MoveScaled(11,32,6,4)
+      Font = Font["11"]
+      MinValue = 2
+      MaxValue = 120
+      Value = 30
+    }
+    { RepOn ToggleButton
+      MoveScaled(2,32,8,4)
+      Font = Font["9"]
+      Text = ("REP off")
+    }
+    { CF4 Button
+      MoveScaled(26,27,8,4)
+      Font = Font["9,Bold"]
+      Text = ("QSO")
+    }
+    { CF2 Button
+      MoveScaled(10,27,8,4)
+      Font = Font["-3"]
+      Text = ("Call de")
+    }
+    { CF3 Button
+      MoveScaled(18,27,8,4)
+      Font = Font["DejaVu Sans,-3"]
+    }
+    { cwstart Button
+      MoveScaled(18,32,9,4)
+      Font = Font["-2"]
+      Text = ("Start QSO")
+    }
+    { CF5 Button
+      MoveScaled(35,27,8,4)
+      Font = Font["8"]
+      Text = ("His Call")
+    }
+    { CF6 Button
+      MoveScaled(43,27,8,4)
+      Font = Font["9"]
+      Text = ("RPTS")
+    }
+    { CF7 Button
+      MoveScaled(51,27,8,4)
+      Font = Font["8"]
+      Text = ("R TU")
+    }
+    { CF8 Button
+      MoveScaled(59,27,8,4)
+      Font = Font["9"]
+      Text = ("RX")
+    }
+    { CF9 Button
+      MoveScaled(70,27,8,4)
+      Font = Font["9"]
+      Text = ("73")
+    }
+    { CF10 Button
+      MoveScaled(78,27,8,4)
+      Font = Font["9"]
+      Text = ("e e")
+    }
+    { cwcountry TextLabel
+      MoveScaled(28,32,19,5)
+      Font = Font["11"]
+      Border = Border.Etched
+      Alignment = Align.Center
+    }
+    { cwcont TextLabel
+      MoveScaled(47,32,5,5)
+      Font = Font["11"]
+      Border = Border.Etched
+      Alignment = Align.Center
+    }
+    { Spinwpm SpinBox
+      MoveScaled(1,4,7,4)
+      Enabled = False
+      Font = Font["+2"]
+      MinValue = 5
+      MaxValue = 60
+      Value = 23
+    }
+    { Clearrx Button
+      MoveScaled(79,64,9,4)
+      Text = ("Clear")
+    }
+    { ComboBand ComboBox
+      MoveScaled(52,32,11,4)
+      List = [("2190m"), ("600m"), ("160m"), ("80m"), ("60m"), ("40m"), ("30m"), ("20m"), ("17m"), ("15m"), ("12m"), ("10m"), ("6m"), ("4m"), ("2m"), ("70cm"), ("23cm"), ("13cm")]
+      Text = ("40m")
+    }
+    { TextLabel3 TextLabel
+      MoveScaled(18,63,6,3)
+      Font = Font["+3"]
+      Text = ("< SK")
+    }
+    { Button1 Button
+      MoveScaled(80,13,8,4)
+      Text = ("ALT")
+    }
+    { FreqRadio TextLabel
+      MoveScaled(63,31,19,7)
+      Font = Font["DejaVu Sans,+3"]
+      Alignment = Align.Center
+    }
+    { TextLabel9 TextLabel
+      MoveScaled(83,31,5,6)
+      Font = Font["+2"]
+      Text = ("MHz")
+      Alignment = Align.Center
+    }
+    { TimerTX #Timer
+      #MoveScaled(36,52)
+      Enabled = True
+      Delay = 10
+    }
+  }
+  { Timer1 #Timer
+    #MoveScaled(78,42)
+    Delay = 500
+  }
+  { Timer2 #Timer
+    #MoveScaled(64,43)
+    Delay = 45000
+  }
+  { RXArea TextArea
+    MoveScaled(1,37,87,25)
+    Font = Font["+5"]
+    Wrap = True
+  }
+  { Socket1 #Socket
+    #MoveScaled(23,41)
+  }
+  { Timer3 #Timer
+    #MoveScaled(33,46)
+  }
+  { HBox1 HBox
+    MoveScaled(4,62,69,6)
+    { TextLabel8 TextLabel
+      MoveScaled(1,1,8,4)
+      Font = Font["Arial,+3"]
+      Text = ("* AR\n")
+    }
+    { TextLabel1 TextLabel
+      MoveScaled(11,1,8,4)
+      Font = Font["Arial,+3"]
+      Text = ("= BT")
+    }
+    { TextLabel2 TextLabel
+      MoveScaled(19,1,9,4)
+      Font = Font["Arial,+3"]
+      Text = ("&lt;  SK")
+    }
+    { TextLabel4 TextLabel
+      MoveScaled(29,1,8,4)
+      Font = Font["Arial,+3"]
+      Text = ("( KN")
+    }
+    { TextLabel5 TextLabel
+      MoveScaled(40,1,8,4)
+      Font = Font["Arial,+3"]
+      Text = ("! SN")
+    }
+    { TextLabel6 TextLabel
+      MoveScaled(52,-3,8,4)
+      Font = Font["Arial,+3"]
+      Text = ("& AS")
+    }
+    { TextLabel7 TextLabel
+      MoveScaled(63,1,8,4)
+      Font = Font["Arial,+3"]
+      Text = ("> BK")
+    }
+  }
+  { Sport #SerialPort
+    #MoveScaled(62,48)
+  }
+  { TextLabel10 TextLabel
+    MoveScaled(79,69,24,4)
+    Text = ("By ZP4KFX")
+  }
+  { Arduino Label
+    MoveScaled(1,69,33,2)
+  }
+}

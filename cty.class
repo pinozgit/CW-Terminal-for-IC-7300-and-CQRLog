@@ -1,0 +1,167 @@
+' Gambas class file
+
+' This class has been borrowed from dfhLog- Hamradio LogBook
+'     Copyright (C) 2009  Jesús Guardón, EA7DFH <ea7dfh@gmail.com>
+' 
+'     This program is free software: you can redistribute it and/or modify
+'     it under the terms of the GNU General Public License as published by
+'     the Free Software Foundation, either version 3 of the License, or
+'     (at your option) any later version.
+' 
+'     This program is distributed in the hope that it will be useful,
+'     but WITHOUT ANY WARRANTY; without even the implied warranty of
+'     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+'     GNU General Public License for more details.
+' 
+'     You should have received a copy of the GNU General Public License
+'     along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+' declare properties
+
+Property number As Integer
+Property entity As String
+Property pfx As String
+Property cqz As String
+Property ituz As String
+Property continent As String
+Property lat As Float
+Property lon As Float
+Property tz As Integer
+Property pfxs As String
+
+'private
+
+Private $number As Integer
+Private $entity As String
+Private $pfx As String
+Private $cqz As String
+Private $ituz As String
+Private $continent As String
+Private $lat As Float
+Private $lon As Float
+Private $tz As Integer
+Private $pfxs As String
+
+
+' Implements  properties
+
+Private Function number_Read() As Integer
+
+  Return $number
+
+End
+
+Private Sub number_Write(Value As Integer)
+
+  $number = Value
+
+End
+
+
+Private Function entity_Read() As String
+
+  Return $entity
+
+End
+
+Private Sub entity_Write(Value As String)
+
+  $entity = Value
+
+End
+
+Private Function pfx_Read() As String
+
+  Return $pfx
+
+End
+
+Private Sub pfx_Write(Value As String)
+
+  $pfx = Value
+
+End
+
+Private Function cqz_Read() As String
+
+  Return $cqz
+
+End
+
+Private Sub cqz_Write(Value As String)
+
+  $cqz = Value
+
+End
+
+Private Function ituz_Read() As String
+
+  Return $ituz
+
+End
+
+Private Sub ituz_Write(Value As String)
+
+  $ituz = Value
+
+End
+
+Private Function continent_Read() As String
+
+  Return $continent
+
+End
+
+Private Sub continent_Write(Value As String)
+
+  $continent = Value
+
+End
+
+Private Function lat_Read() As Float
+
+  Return $lat
+
+End
+
+Private Sub lat_Write(Value As Float)
+
+  $lat = Value
+
+End
+
+Private Function lon_Read() As Float
+
+  Return $lon
+
+End
+
+Private Sub lon_Write(Value As Float)
+
+  $lon = Value
+
+End
+
+Private Function tz_Read() As Integer
+
+  Return $tz
+
+End
+
+Private Sub tz_Write(Value As Integer)
+
+  $tz = Value
+
+End
+
+Private Function pfxs_Read() As String
+
+  Return $pfxs
+
+End
+
+Private Sub pfxs_Write(Value As String)
+
+  $pfxs = Value
+
+End

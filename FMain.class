@@ -1,0 +1,1510 @@
+' Gambas class file
+
+' Scrive anche su CQRLog... attivare remote mode for ADIF 
+'  gestisce la cosa FIFO
+'
+Static Public call$ As String = "ZP6KFX"
+Static Public nick$ As String = "Pino"
+Static Public qth$ As String = "Aregua"
+Static Public toffset As Integer = -4 ' local Time Offset respect to GMT  ... negative west
+Static Public QSODate As String
+Public aDate As New String[]
+Static Public adif_ver As String = "3.0.0"
+Static Public F As Float = 14.200 ' frequency read from radio
+
+
+' Public UDPClient As UdpSocket
+' Static Public Audio As String = "p"   'p 
+' Static Public device As String  ' CW daemon parameters
+Static Public speed As String   ' to be loaded fron config data base
+Static Public sdevice As String 
+' Static Public Priorty As String
+' Static Public volume As String
+' Static Public sidetone As String
+' Static Public weight As String
+' Static Public txdelay As String
+Public comma As Boolean
+' ------------   semaphors ---------
+Static Public sAlt As Boolean = False
+
+'------------------------- Hamlib
+Static Public RigN As Integer = 3073 ' radio model IC-7300  era 373
+Static Public Radio1 As String
+Static Public r1port As String = "/dev/IC-7300"
+Static Public r1address As String = "0x94"    ' IC-7300
+Static Public r1br As String = "9600"
+Static Public RigMode As String
+Static Public RigBand As String
+Static Public band As String
+Static Public ModeBand As String
+Static Public ConnectedToRigctle As Boolean = False
+
+Static Public ptt1 As String
+Static Public ptt0 As String
+Static Public V As Integer 
+Static Public lc As Integer
+Static Public lp As Integer 
+Static Public KC As Integer
+Static CWSp As Integer
+Static Public cdx As Cty
+Static Public StartTime As Date
+Static Public EndTime As Date
+
+Static Public q As New Queue ' FIFO
+Static Public tSendCW As Variant
+
+Public UDPClient As UdpSocket
+
+
+Public Sub Form_Open()
+
+  '********************************************** 
+  '  ' Aggiunge elementi ... prova FIFO
+  ' q.Enqueue("Primo")
+  ' q.Enqueue(123)
+  ' q.Enqueue(True)
+  ' q.Enqueue("a")
+  ' 
+  ' Svuota la coda
+  ' While Not q.IsEmpty
+  '   Print q.Dequeue()
+  ' Wend
+  '**********************************************
+  ' tSendCW As SendCW
+  ' tSendCW = New SendCW          ' create a task instance (tasks since gambas 3.3)
+  ' Wait 0.1   
+  ' Debug "Manico "; tSendCW.handle
+  
+  Me.Title = "CW Terminal IC-7300"
+  
+  Me.Top = Settings["CW/Top", Me.Top]
+  Me.Left = Settings["CW/Left", Me.Left]
+  CWSp = Settings["CW/Speed", CWSp]
+  
+  CWCall.SetFocus()
+  
+  ' stop other applications in case active from a previous run
+  Exec ["killall", "rigctld"]
+  Wait 2
+  
+  ' IC-7300 
+  Exec ["rigctld", "-m", Str$(RigN), "-r", r1port, "-s", r1br, "-c", r1address, "&"]
+
+Wait 2
+     Socket1.Host = "127.0.0.1" ' Put into configuration file for remote controlled radio
+     Socket1.Port = 4532
+     ' Socket1.Connect()    ' Connect to rigctld
+     Socket1.Connect("127.0.0.1", 4532) 
+     ' Debug Socket1.Status()
+     
+      UDPClient = New UdpSocket As "UDPClient" 
+        UDPClient.TargetPort = "2333"
+        UDPClient.TargetHost = "127.0.0.1"  
+     
+        UDPClient.Bind
+        
+        Debug "UDP Stato   "; UDPClient.Status; "   NetActive   "; Net.Active
+        ' If UDPClient.Status <= Net.Inactive Then
+        '                  'UDPClient.Path = "/tmp/gambas-udp-client"
+        '     UDPClient.Bind
+        '     Debug "Bind fatto "
+        '  End If
+ 
+'  If UDPClient.Status = Net.Active Then
+'       Debug "UDPClient OK ! "
+' End If
+'   Else
+'      Close #UDPClient
+'      Debug "UDPClient  NOT OK ! "
+'   End If
+'  
+
+  ptt1 = ";T 1\n"
+  ptt0 = ";T 0\n"
+
+  
+  CF3.Text = call$ 
+  F9.Text = call$ 
+  
+  If InStr(Str(Pi), ",") Then ' check the locale...has it comma or point as separator ?
+    comma = True
+  Else 
+    comma = False
+  End If
+ Debug "comma is decimal separator ", comma
+ 
+  zCWSpeed.Value = CWSp
+  Spinwpm.Value = zCWSpeed.Value
+  
+  World.init()   ' initialize cty
+   If world.created Then
+        cdx = New Cty   
+    Else 
+        Message("Problem loading cty.dat")
+    Endif 
+'  
+    cdx = world.findEntity("ZP4KFX") ' for testing
+  Debug "ZP4KFX";; cdx.lat;; cdx.lon;; cdx.entity;; cdx.pfx;; cdx.cqz;; cdx.ituz;; cdx.number;; cdx.continent
+  
+  Try ApriSPort()
+  If Error Then 
+    Print "Errore porta seriale"
+  Else
+  Endif 
+  
+End
+
+Public Sub Form_Close()
+
+   If UDPClient.Status > 0 Then Close #UDPClient
+  Settings["CW/Top"] = Me.Top     '  Does not write !
+  Settings["CW/Left"] = Me.Left   '         "
+  Settings["CW/Speed"] = Spinwpm.Value    
+  Settings.Save                   ' needed for making it write
+  Exec ["killall", "rigctld"]
+  Quit
+End
+
+
+Public Sub UDPClient_Error()
+  
+  Select Case UDPClient.Status
+ Case Net.CannotBindSocket
+   Message.Error(("Client: Unable to Bind to that port"))
+ Case Net.CannotCreateSocket
+   Message.Error(("Client: System does not allow to create a socket"))
+ Case Net.CannotRead
+   Message.Error(("Client: Error Sending Data"))
+ Case Net.CannotWrite
+   Message.Error(("Client: Error Receiving Data"))
+  End Select
+  
+End
+
+'############# mange Hamlib rigctld #############################################
+' Modified on 4/6/2010 to work with hamlib 1.2.11 and the EXTENDED protocol
+
+Public Sub Socket1_Read()
+ Dim S As String
+ Dim ExtS As String
+ Dim RPRT As String
+ Dim ExtResp As String[]  
+ Dim Infos As String[] 
+
+  If Socket1.Status = Net.Connected Then
+      Line Input #Socket1, ExtS
+ ' Debug "Extended Response : ";; ExtS
+     ExtResp = Split(ExtS, ";")
+ ' Debug ExtResp[0];; ExtResp[1]
+   Select Case ExtResp[0]
+      Case "get_freq:"
+         Infos = Split(ExtResp[1], ":")
+ ' Debug "Counts";; Infos.Count;; Infos[1]
+         S = Trim$(Infos[1])                   ' errore Out of Bounds ??
+         FreqManage(S) 
+'  Debug ExtResp[1]
+         RPRT = Trim$(ExtResp[2])
+         If ExtResp[1] Like "RPRT*" Then 
+         RPRT = Trim$(ExtResp[1])
+              
+              Select Case S
+                 Case "RPRT 0"  
+                   FreqManage(S)
+                 Case "RPRT -5", "RPRT -13", "RPRT -6"
+'                         mnuCLOSE_Click() ' Disable polling
+                        Error.Raise("Error .\n" & S)        
+              End Select 
+          Else 
+             FreqManage(S)
+          End If 
+      Case "get_mode:"
+         Infos = Split(ExtResp[1], ":")
+         RigMode = Trim$(Infos[1])
+      Case Else 
+         ' Debug "Extended Response : ";; ExtS
+   End Select 
+ 
+  End If  ' Socket Status
+'   DEBUG "RigBand :";; RigBand;; "RigMode :";; RigMode
+Catch 
+    ' Debug Error.Where;; Error.Text;; "S= ";; S
+  ' '   Abort
+  ' '   Timer3.Stop
+  ' '     Exec ["killall", "rigctld"]
+  ' '     Debug "rigctld restarted !"
+  ' '    Wait 2
+  ' ' 
+  ' ' ' IC-7300 
+  ' '     Exec ["rigctld", "-m", Str$(RigN), "-r", r1port, "-s", r1br, "-c", r1address, "&"]
+  ' ' 
+  ' '    Wait 3
+  ' '    Timer3.Start
+'     mnuCLOSE_Click() ' Disable polling
+'     FreqRadio.Text = ""
+'     Message.Warning("CAT Polling disabled")
+'   DEBUG Error.Text & "\n" & Error.Where
+' '     Message.Error(Error.Text & "\n" & Error.Where & " S=" & S)    
+ ' radio off or other error...disable polling
+End
+
+Public Sub FreqManage(S As String)
+ Dim MHz As Integer
+    If Val(S) > 250000 Then ' !!!! WILL NOT WORK AT 137 KHz !!!!!!
+            F = Val(S) / 1000000
+           ' If TransvON Then 
+           '      S = Str(Abs(F + TransvOL) * 1000000)
+           '      F = Abs(F + TransvOL)
+           '    Endif 
+' Debug "F e S ";; F;; S
+              If comma Then 
+                Try FreqRadio.Text = Replace$(Format$(Val(S) / 1000, "0,###.000"), " ", ".")
+              Else 
+                Try FreqRadio.Text = Replace$(Format$(Val(S) / 1000, "0,###.000"), " ", ",")
+              End If  
+' update enzolog if needed
+'              If enzoflag Then PostEnzoLog()
+'              IF hdrflag THEN hdrOnAir()
+            
+               MHz = CInt(Val(S) / 1000000)      'Val(S) \ 1000000
+'                 AlarmOutBand(F)  
+      '   DEBUG "F= ";; F
+                ' If firsttime Then  ' at the beginning set Freqb4 = F
+                '    Freqb4 = F
+                '     FScale.Control(F * 1000)  ' inform FScale about the frequency change <---------------------------
+                '    contatore = 0
+                '    firsttime = False
+                ' End If
+       'FScale.Control(F * 1000)  ' inform FScale about the frequency change 
+                ' If F <> Freqb4 Then ' if stady for 6  times update Freqb4    
+                '  FScale.Control(F * 1000)  ' inform FScale about the frequency change       <------------------------
+                '  Inc contatore      ' needed to store the right freq. when leaving the station tune
+                '   If contatore = 6 Then 
+                '      Freqb4 = F
+                '      contatore = 0
+                '   End If
+                ' End If
+       
+'                 QSY(Abs(F - Freqb4)) ' spot if freq has been moved...depends on dial speed !! HI
+      '     DEBUG MHz;; S   
+           ' If TransvON Then 
+           '      ComboBand.Text = TransvBand
+'            Else 
+                Select Case MHz  ' update Band
+                  Case 0
+                     If Val(S) < 400000 Then 
+                              ComboBand.Text = ("2190m")
+                     Else 
+                              ComboBand.Text = ("600m")
+                     Endif 
+                  Case 1 
+                     ComboBand.Text = ("160m")
+                  Case 3
+                      ComboBand.Text = ("80m")
+                  Case 5
+                      ComboBand.Text = ("60m")
+                  Case 7
+                      ComboBand.Text = ("40m")
+                  Case 10
+                      ComboBand.Text = ("30m")         
+                  Case 14
+                      ComboBand.Text = ("20m")
+                  Case 18
+                      ComboBand.Text = ("17m")
+                  Case 21
+                      ComboBand.Text = ("15m")
+                  Case 24
+                      ComboBand.Text = ("12m")
+                  Case 28
+                      ComboBand.Text = ("10m")
+                  Case 50, 51, 52, 53
+                      ComboBand.Text = ("6m")
+                  Case 70, 71
+                      ComboBand.Text = ("4m")
+                  Case 144, 145, 146, 147
+                      ComboBand.Text = ("2m")
+                  Case 430, 431, 432, 433, 434, 435, 436, 437, 438, 439
+                      ComboBand.Text = ("70cm")         
+                End Select 
+'            Endif    ' TransvON       
+            ComboBand_Change() ' because if ReadOnly true Combo change does not work any more.
+              If ComboBand.Text <> band Then
+                band = ComboBand.Text 
+                ' FScale.Inizio = lowerl  ' inform FScale of band change
+                ' FScale.Fine = upperl
+'                 GetBandLimits()
+              End If
+       Else 
+         RigBand = S  ' when set ?
+         Debug "RigBand";; RigBand 
+       End If   ' IF IsNull(Val(S)) THEN
+  
+  
+End
+
+Public Function Compute_band(freq As String) As String
+  Dim MHz As Float
+  Dim ff As Float
+
+  If comma Then
+     MHz = Int(Val(Replace$(freq, ".", ","))) '(Replace$(freq, ".", ","))
+     ff = Val(Replace$(freq, ".", ","))
+  Else
+     MHz = Int(Val(freq))
+     ff = Val(freq)
+  Endif
+  
+    Select Case MHz  ' update Band
+            Case 0
+                If ff < 0.400000 Then
+                        Return ("2190m")
+                Else
+                        Return ("600m")
+                Endif
+            Case 1
+               Return ("160m")
+            Case 3
+                Return ("80m")
+            Case 5
+                Return ("60m")
+            Case 7
+                Return ("40m")
+            Case 10
+                Return ("30m")
+            Case 14
+                Return ("20m")
+            Case 18
+                Return ("17m")
+            Case 21
+                Return ("15m")
+            Case 24
+                Return ("12m")
+            Case 28
+                Return ("10m")
+            Case 50, 51, 52, 53
+                Return ("6m")
+            Case 144, 145, 146, 147
+                Return ("2m")
+            Case 430, 431, 432, 433, 434, 435, 436, 437, 438, 439
+                Return ("70cm")
+          End Select
+End
+
+Public Sub Socket1_Error()
+  '**********************************
+  ' this is the function to
+  ' handle Errors when trying
+  ' to read or write to the socket
+  '**********************************
+  Select Case Socket1.Status
+    Case Net.CannotCreateSocket
+      Message.Info("The system does not allow to create a socket")
+    Case Net.HostNotFound
+      Message.Info("Host not Found")
+    Case Net.ConnectionRefused
+      Message.Info("Unable to Connect. Connection Refused \n Possibly rigctld did not start \n Press 'Connect' again")
+    Case Net.CannotRead
+      Print "Error Reading Data"
+    Case Net.CannotWrite
+      Print "Error Writing Data"
+  End Select
+
+End
+
+
+Public Sub Socket1_Closed()
+  '********************************************
+  ' this event will raise when foreing host
+  ' closes the socket by any reason
+  '********************************************
+Message.Info("Connection Closed by foreing host.")
+ConnectedToRigctle = False
+End
+
+Public Sub Socket1_Found()
+  '********************************************
+  ' this event will raise when foreing host
+  ' name has been translated to IP
+  '********************************************
+ Print "Host Found. Connecting..."
+  
+End
+
+Public Sub Socket1_Ready()
+  '***********************************
+  ' When connection proccess has finished
+  ' successfully, "Connected" event will raise
+  '***********************************
+ 
+  Debug "Connected to  host " & Socket1.Path
+    ConnectedToRigctle = True
+  If Socket1.Status = Net.Connected Then 
+       Write #Socket1, ";M CW 0\n", 8  
+'        Write #Socket1, ";f\n", 2
+        Timer3.Enabled = True ' Anable polling
+        Timer3.Delay = 500
+       ' mnuOPEN.Enabled = False
+       ' mnuCLOSE.Enabled = True
+     Else 
+       ' mnuCLOSE.Enabled = False
+       ' mnuOPEN.Enabled = True
+      Debug Net.Connected
+     End If
+End
+'***************************************************
+
+Public Sub Button3_Click() ' Send line
+ 
+  Send_Long(TxtData.Text)
+   ' q.Enqueue(TxtData.Text)
+  CWCall.SetFocus()
+
+End
+
+
+
+Public Sub ginput_KeyPress() ' key.tab works as Ctl-Tab !!!???
+  KC = Key.Code              ' space bar works; Tab jumps 2. Why ??
+' If KC = Key.Space Then Desktop.SendKeys("{[BackSpace]}")
+' If KC = Key.Space Then Desktop.SendKeys("{[Left]}")
+Debug "GINPUT";; KC
+If KC = Key.Esc Then
+ Abort
+Else
+  If Key.Code = Key.Tab Then
+      Debug "TAB pressed";; Last.tag
+      Stop Event
+      Select Case Last.tag
+       Case 1   ' sRST
+         If Not cws.Text Then cws.Text = "599"
+         cws.setfocus
+         CWCall.Text = Trim$(Upper$(CWCall.Text))
+         Desktop.SendKeys("{[Right]}{[Left]}{[Shift_R][Left]}")   
+       Case 2  ' rRST         
+         If Not cwr.Text Then cwr.Text = "599"
+         cwr.setfocus              
+          Desktop.SendKeys("{[Right]}{[Left]}{[Shift_L][Left]}") 
+         CWCall.Text = Trim$(Upper$(CWCall.Text))
+         cws.Text = Replace$(cws.Text, " ", "")
+       Case 3    ' Name          
+         cwname.setfocus       
+         CWCall.Text = RTrim$(Upper$(CWCall.Text))
+           cws.Text = Replace$(cws.Text, " ", "")  ' repeated because first does not do it
+           cwr.Text = Replace$(cwr.Text, " ", "")
+       Case 4   ' QTH 
+          cws.Text = Replace$(cws.Text, " ", "")  ' repeated because first does not do it
+          cwr.Text = Replace$(cwr.Text, " ", "")
+          cwname.Text = RTrim$(cwname.text)
+          cwname.Text = Upper$(Left$(cwname.Text)) & Lower$(Right$(cwname.Text, -1))
+          cwqth.setfocus
+       Case 5
+           cws.Text = Replace$(cws.Text, " ", "")  ' repeated because first does not do it
+           cwr.Text = Replace$(cwr.Text, " ", "")
+           cwqth.Text = RTrim$(cwqth.text)
+           cwqth.Text = Upper$(Left$(cwqth.Text)) & Lower$(Right$(cwqth.Text, -1))
+            If Key.code <> key.Space Then cwcall.setfocus
+End Select  
+  Else If key.Code = key.Enter Or key.Code = key.Return Or Key.Code = Key.ControlKey Then
+      Debug "LASTTAG";; Last.tag
+      Select Case Last.tag
+        Case 1   ' sRST
+          If Not cws.Text Then cws.Text = "599"
+          cws.setfocus
+          CWCall.Text = Trim$(Upper$(CWCall.Text))
+          cws.Pos = 2  ' Position cursor at center (character index 2)
+          cws.Refresh()  ' Force refresh
+          Desktop.SendKeys("{[Right]}{[Left]}{[Shift_R][Left]}")   
+        Case 2  ' rRST         
+          If Not cwr.Text Then cwr.Text = "599"
+          cwr.setfocus
+          cwr.Pos = 2  ' Position cursor at center (character index 2)
+          CWCall.Text = Trim$(Upper$(CWCall.Text))
+          cws.Text = Replace$(cws.Text, " ", "")
+          cwr.Refresh()  ' Force refresh
+        Case 3    ' Name          
+          cwname.setfocus       
+          CWCall.Text = RTrim$(Upper$(CWCall.Text))
+          cwname.Pos = Len(cwname.Text)  ' Position at end
+            cws.Text = Replace$(cws.Text, " ", "")
+            cwr.Text = Replace$(cwr.Text, " ", "")
+        Case 4   ' QTH 
+           cws.Text = Replace$(cws.Text, " ", "")
+           cwr.Text = Replace$(cwr.Text, " ", "")
+           cwname.Text = RTrim$(cwname.text)
+           cwname.Text = Upper$(Left$(cwname.Text)) & Lower$(Right$(cwname.Text, -1))
+           cwqth.setfocus
+           cwqth.Pos = Len(cwqth.Text)  ' Position at end
+        Case 5
+            cws.Text = Replace$(cws.Text, " ", "")
+            cwr.Text = Replace$(cwr.Text, " ", "")
+            cwqth.Text = RTrim$(cwqth.text)
+            cwqth.Text = Upper$(Left$(cwqth.Text)) & Lower$(Right$(cwqth.Text, -1))
+             If Key.code <> key.Space Then cwcall.setfocus
+        End Select  
+   Else
+        FKeys()   ' KC
+   End If
+Endif
+End
+
+
+
+Public Sub namqthclear()
+  cwname.Text = ""
+  cwqth.Text = ""
+End
+
+
+
+' Public Sub cwlog_Click() 
+'   Dim GMT, GMTdate As Date
+'   Dim crlf As String 
+'   Dim FileLog As String
+'   Dim hFile As File 
+'   Dim L As Integer
+'   Dim ts, fe As String
+'   Dim $ADIF As String
+'   
+'         crlf = Chr$(13) & Chr$(10)
+'         ' GMT = Vb.DateAdd("h", -toffset, Now)
+'         GMT = Time(DateAdd(Now(), gb.second, System.TimeZone))
+'         GMTdate = Date(DateAdd(Now(), gb.second, System.TimeZone))
+'         EndTime = Time(Hour(GMT), Minute(GMT), Second(GMT)) ' get end time  
+'         QSODate = Day(GMTdate) & "/" & Month(GMTdate) & "/" & Year(GMTdate)
+'         Debug "QSO End", EndTime, QSODate
+'         RXArea.Text = RXArea.Text & "\nQSO ends at " & Str(EndTime) & " of " & QSODate
+'         FileLog = user.Home &/ "CWTerminal.adif"
+'       
+'         If Exist(FileLog) Then 
+'             hFile = Open FileLog For Append 
+'         Else
+'            hFile = Open FileLog For Write Create
+'            Print #hFile, "ADIF file created by CWTerminal V." & application.Version & " (c) ZP4KFX," &  
+'            crlf & "distributed under the GPL GNU Licence " &
+'            crlf & "<ADIF_VER:" & Str(Len(adif_ver)) & ">" & adif_ver &
+'            crlf & "<PROGRAMID:10>CWTerminal" &
+'            crlf & "<PROGRAMVERSION:" & Str(Len(application.Version)) & ">" & application.Version &
+'            crlf & "<ENCODING:10>ISO-8859-1" &
+'            crlf & "<EOH>" & crlf & crlf
+'         Endif
+' 
+'         Print #hFile, "<" & "call" & ":" & Str$(Len(CWCall.Text)) & ">" & UCase$(CWCall.Text) & " ";
+'         Print #hFile, "<" & "name" & ":" & Str$(Len(cwname.Text)) & ">" & Upper$(Left$(cwname.Text)) & Lower$(Right$(cwname.Text, -1)) & " ";
+'         Print #hFile, "<" & "qth" & ":" & Str$(Len(cwqth.Text)) & ">" & Upper$(Left$(cwqth.Text)) & Lower$(Right$(cwqth.Text, -1)) & " ";
+'         $ADIF = "<" & "call" & ":" & Str$(Len(CWCall.Text)) & ">" & UCase$(CWCall.Text) & " "
+'         $ADIF = $ADIF & "<" & "name" & ":" & Str$(Len(cwname.Text)) & ">" & Upper$(Left$(cwname.Text)) & Lower$(Right$(cwname.Text, -1)) & " "
+'         $ADIF = $ADIF & "<" & "qth" & ":" & Str$(Len(cwqth.Text)) & ">" & Upper$(Left$(cwqth.Text)) & Lower$(Right$(cwqth.Text, -1)) & " "
+'         
+'          If StartTime = "" Then StartTime = EndTime
+'          ts = Replace$(Str(StartTime), ":", "")
+'          L = Len(Trim$(Str(ts)))
+'         Print #hFile, "<time_on:" & Str$(L) & ">" & ts;
+'          $ADIF = $ADIF & "<time_on:" & Str$(L) & ">" & ts
+'           ts = Replace$(Str(EndTime), ":", "")
+'           L = Len(Trim$(Str(ts)))  
+'         Print #hFile, " <time_off:" & Str$(L) & ">" & ts; 
+'         $ADIF = $ADIF & " <time_off:" & Str$(L) & ">" & ts
+'          aDate = Split(QSODate, "/")
+'          If Len(aDate[0]) = 1 Then aDate[0] = "0" & aDate[0]
+'          If Len(aDate[1]) = 1 Then aDate[1] = "0" & aDate[1]
+'          ts = aDate[2] & aDate[1] & aDate[0]
+'         Print #hFile, " <qso_date:8>" & ts;
+'         $ADIF = $ADIF & " <qso_date:8>" & ts
+'           If cws.Text = "" Then cws.text = "599"
+'           If cwr.Text = "" Then cwr.Text = "599"
+'         Print #hFile, " <rst_sent:" & Len(cws.Text) & ">" & cws.text;
+'         Print #hFile, " <rst_rcvd:" & Len(cwr.Text) & ">" & cwr.text;
+'         Print #hFile, " <mode:2>CW";
+'         Print #hFile, " <band:" & Len(ComboBand.Text) & ">" & ComboBand.Text;
+'         $ADIF = $ADIF & " <rst_sent:" & Len(cws.Text) & ">" & cws.text & " <rst_rcvd:" & Len(cwr.Text) & ">" & cwr.text & " <mode:2>CW" & " <band:" & Len(ComboBand.Text) & ">" & ComboBand.Text
+'         ' Debug comma
+'         If comma Then
+'            fe = Replace$(FreqRadio.Text, ",", "")
+'         Else
+'            fe = Replace$(FreqRadio.Text, ".", "")
+'            fe = Replace$(fe, ",", ".")
+'         Endif
+'          L = Len(Trim$(Str(fe)))
+'         If L > 0 Then
+'                             Print #hFile, "<freq:" & Str$(L) & ">" & fe;
+'                             $ADIF = $ADIF & "<freq:" & Str$(L) & ">" & fe
+'         End If
+'         
+' '         Print #hFile, "<freq:" & Str$(L) & ">" & ts;
+' '          ts = Replace$(Replace$(FreqRadio.Text, ":", ""), ".", "")
+'         Print #hFile, " <operator:" & Len(call$) & ">" & call$;
+'         Print #hFile, " <state:" & Len(cwcountry.Text) & ">" & cwcountry.Text;
+'         Print #hFile, " <cont:" & Len(cwcont.Text) & ">" & cwcont.Text;
+'         Print #hFile, " <EOR>" ' & crlf 
+'         $ADIF = $ADIF & " <operator:" & Len(call$) & ">" & call$ & " <state:" & Len(cwcountry.Text) & ">" & cwcountry.Text & " <cont:" & Len(cwcont.Text) & ">" & cwcont.Text & " <EOR>"
+'         
+'     ' Message.Info("Exporting to ADIF file\n" & FileLog & " ended", "OK")
+'         Flush #hFile
+'         Close #hFile
+'  Debug "UDP Stato   "; UDPClient.Status; "   NetActive   "; Net.Active
+'          Write #UDPClient, $ADIF, Len($ADIF)  
+'  Debug $ADIF 
+'       StartTime = ""
+'       EndTime = ""
+'       BClear_Click()
+' End
+'****************************************************************************************************************************************
+Public Sub cwlog_Click() 
+  Dim GMT, GMTdate As Date
+  Dim crlf As String 
+  Dim FileLog As String
+  Dim hFile As File 
+  Dim L As Integer
+  Dim ts, fe As String
+  Dim $ADIF As String
+  Dim FileContent As String ' Variabile per contenuto completo file
+  
+  crlf = Chr$(13) & Chr$(10)
+  GMT = Time(DateAdd(Now(), gb.second, System.TimeZone))
+  GMTdate = Date(DateAdd(Now(), gb.second, System.TimeZone))
+  EndTime = Time(Hour(GMT), Minute(GMT), Second(GMT)) ' get end time  
+  QSODate = Day(GMTdate) & "/" & Month(GMTdate) & "/" & Year(GMTdate)
+  Debug "QSO End", EndTime, QSODate
+  RXArea.Text = RXArea.Text & "\nQSO ends at " & Str(EndTime) & " of " & QSODate
+  FileLog = user.Home &/ "CWTerminal.adif"
+  
+  ' Costruisci il contenuto del file
+  If Exist(FileLog) Then 
+    ' File esiste: solo il QSO (senza header)
+    FileContent = ""
+  Else
+    ' Nuovo file: aggiungi header ADIF completo
+    FileContent = "ADIF file created by CWTerminal V." & application.Version & " (c) ZP4KFX," &  
+                  crlf & "distributed under the GPL GNU Licence " &
+                  crlf & "<ADIF_VER:" & Str(Len(adif_ver)) & ">" & adif_ver &
+                  crlf & "<PROGRAMID:10>CWTerminal" &
+                  crlf & "<PROGRAMVERSION:" & Str(Len(application.Version)) & ">" & application.Version &
+                  crlf & "<ENCODING:10>ISO-8859-1" &
+                  crlf & "<EOH>" & crlf & crlf
+  Endif
+
+  ' Costruisci il record QSO (questo va sia su file che via UDP)
+  $ADIF = "<" & "call" & ":" & Str$(Len(CWCall.Text)) & ">" & UCase$(CWCall.Text) & " "
+  $ADIF = $ADIF & "<" & "name" & ":" & Str$(Len(cwname.Text)) & ">" & Upper$(Left$(cwname.Text)) & Lower$(Right$(cwname.Text, -1)) & " "
+  $ADIF = $ADIF & "<" & "qth" & ":" & Str$(Len(cwqth.Text)) & ">" & Upper$(Left$(cwqth.Text)) & Lower$(Right$(cwqth.Text, -1)) & " "
+  
+  If StartTime = "" Then StartTime = EndTime
+  ts = Replace$(Str(StartTime), ":", "")
+  L = Len(Trim$(Str(ts)))
+  $ADIF = $ADIF & "<time_on:" & Str$(L) & ">" & ts
+  
+  ts = Replace$(Str(EndTime), ":", "")
+  L = Len(Trim$(Str(ts)))  
+  $ADIF = $ADIF & " <time_off:" & Str$(L) & ">" & ts
+  
+  aDate = Split(QSODate, "/")
+  If Len(aDate[0]) = 1 Then aDate[0] = "0" & aDate[0]
+  If Len(aDate[1]) = 1 Then aDate[1] = "0" & aDate[1]
+  ts = aDate[2] & aDate[1] & aDate[0]
+  $ADIF = $ADIF & " <qso_date:8>" & ts
+  
+  If cws.Text = "" Then cws.text = "599"
+  If cwr.Text = "" Then cwr.Text = "599"
+  $ADIF = $ADIF & " <rst_sent:" & Len(cws.Text) & ">" & cws.text & " <rst_rcvd:" & Len(cwr.Text) & ">" & cwr.text & " <mode:2>CW" & " <band:" & Len(ComboBand.Text) & ">" & ComboBand.Text
+  
+  If comma Then
+     fe = Replace$(FreqRadio.Text, ",", "")
+  Else
+     fe = Replace$(FreqRadio.Text, ".", "")
+     fe = Replace$(fe, ",", ".")
+  Endif
+  L = Len(Trim$(Str(fe)))
+  If L > 0 Then
+    $ADIF = $ADIF & "<freq:" & Str$(L) & ">" & fe
+  End If
+  
+  $ADIF = $ADIF & " <operator:" & Len(call$) & ">" & call$ & " <state:" & Len(cwcountry.Text) & ">" & cwcountry.Text & " <cont:" & Len(cwcont.Text) & ">" & cwcont.Text & " <EOR>" & crlf
+  
+  ' Componi il contenuto completo del file (header + QSO)
+  FileContent = FileContent & $ADIF
+  
+  ' Scrivi tutto il contenuto nel file in una sola operazione
+  If Exist(FileLog) Then 
+    hFile = Open FileLog For Append 
+  Else
+    hFile = Open FileLog For Write Create
+  Endif
+  
+  Print #hFile, FileContent;  ' Unica scrittura del contenuto completo
+  Close #hFile
+  
+  ' Invia solo il QSO via UDP (senza header)
+  Debug "UDP Stato   "; UDPClient.Status; "   NetActive   "; Net.Active
+  Write #UDPClient, $ADIF, Len($ADIF)  ' IC-7300
+  'Write #UDPClient2, $ADIF, Len($ADIF)  ' IC-706
+  Debug $ADIF 
+  
+  StartTime = ""
+  EndTime = ""
+  BClear_Click()
+End
+
+'****************************************************************************************************************************************
+Function UTF8c(St As String) As String ' convert UTF-8 in Windoz ASCII 
+
+'     St = Replace$(St, "'", "''")  ' Escape apostroph
+   Return Conv$(St, "UTF-8", "ISO-8859-1")
+ Catch 
+  ' Message.Error(Error.text)
+  Debug St    
+  Return "???"
+End
+
+
+' PUBLIC SUB TextIN_KeyRelease()
+'   
+'   DEBUG Right(TextIN.Text)
+'   WRITE #UDPCLient, Right(TextIN.Text), 1
+'   
+' END
+
+' PUBLIC SUB TextIN_KeyPress()
+' 
+'   DEBUG Right(TextIN.Text)
+'   WRITE #UDPCLient, Right(TextIN.Text), 1
+' 
+' END
+
+Public Sub TextIN_Change()   ' IC-7300 does  not recognize ñ and accented chars !
+' Debug String.UCase("ñàáéèìí")
+'    Debug Right(TextIN.Text), UCase$(Conv$(Right$(TextIN.Text), "UTF-8", "ISO8859-1"))     ' ñÑ À È É
+   KC = Asc(Right(TextIN.Text))
+   ' Debug "KC";; KC
+     ' Debug "Manico "; tSendCW.handle
+     
+   ' q.Enqueue(Right(TextIN.Text))
+   ' Print "Size aggiunto "; q.Size
+    ' Print "Running "; tSendCW.Running
+    'Print "Copia "; q.Copy
+    ' Print "Peek "; q.Peek
+     ' tSendCW.Wait 
+   ' Print "Dequeue "; FMain.q.Dequeue()
+   ' Print "Size aggiunto-2 "; q.Size
+   
+If KC = 186 Or KC = 9 Then    ' TAB or \
+  Abort
+Else
+    Select Case KC
+      Case Asc("*")
+         ' Write #Socket1, ";b ^AR\n", 7   '* AR    same as CWDaemon
+         q.Enqueue(";b ^AR\n")
+      Case Asc("=")
+         ' Write #Socket1, ";b ^BT\n", 7 
+          q.Enqueue(";b ^BT\n")
+      Case Asc("<")
+         ' Write #Socket1, ";b ^SK\n", 7 
+          q.Enqueue(";b ^SK\n")
+      Case Asc("(")
+        ' Write #Socket1, ";b ^KN\n", 7 
+         q.Enqueue(";b ^KN\n")
+      Case Asc("!")
+        ' Write #Socket1, ";b ^SN\n", 7 
+         q.Enqueue(";b ^SN\n")
+      Case Asc("&")
+        ' Write #Socket1, ";b ^AS\n", 7 
+         q.Enqueue(";b ^AS\n")
+      Case Asc(">")
+        ' Write #Socket1, ";b ^BK\n", 7 
+         q.Enqueue(";b ^BK\n")
+      Case 10
+          ' CR do nothing....do not send CR to rigctld ->> error -9   
+      Case 177
+          ' Write #Socket1, ";b " & Conv$("Ñ", "UTF-8", "ISO8859-1") & "\n", 5  'Ñ
+           q.Enqueue(Conv$("Ñ", "UTF-8", "ISO8859-1"))
+      Case 161, 160, 129
+          ' Write #Socket1, ";b " & Conv$("À", "UTF-8", "ISO8859-1") & "\n", 5 'àáÀÁ
+          q.Enqueue(Conv$("À", "UTF-8", "ISO8859-1"))
+      Case 168
+          ' Write #Socket1, ";b " & Conv$("È", "UTF-8", "ISO8859-1") & "\n", 5  'è
+      Case 169
+          ' Write #Socket1, ";b " & Conv$("É", "UTF-8", "ISO8859-1") & "\n", 5   'é
+      Case 146, 147, 178, 179
+          ' Write #Socket1, ";b " & Conv$("Ò", "UTF-8", "ISO8859-1") & "\n", 5 ' not working yet
+      Case 153, 154, 185, 186
+          ' Write #Socket1, ";b " & Conv$("Ù", "UTF-8", "ISO8859-1") & "\n", 5 ' not working yet
+    Case Else  ' thre are no ìíÌÍ
+          ' Write #Socket1, ";b " & Right((Conv$(TextIN.Text, "UTF-8", "ISO8859-1"))) & "\n", 5  ' sends char <-----
+          ' q.Enqueue(Right(TextIN.Text))
+           q.Enqueue(";b " & (Conv$(Right(TextIN.Text), "UTF-8", "ISO8859-1")) & "\n")
+         ' Begin()
+           ' Send #Socket1, ";b " & Right((Conv$(TextIN.Text, "UTF-8", "ISO8859-1"))) & "\n", 5  ' sends char
+'           Debug "char ";; Right((Conv$(TextIN.Text, "UTF-8", "ISO8859-1"))) 
+    End Select
+Endif
+  
+
+End
+
+Public Sub TimerTX_Timer()   ' TimerTX enabled true, Delay 10.. Trasmette i dati dalla coda
+  Dim L As Integer
+  While Not q.IsEmpty
+      L = Len(";b " & q.Peek() & "\n")
+        ' L = Len(q.Peek())
+      Print q.Peek(), '   Len(";b " & q.Dequeue() & "\n")  ' Invia alla radio via Socket1
+      ' Write #Socket1, ";b " & q.Dequeue() & "\n", L      ' sends char   5
+       Write #Socket1, q.Dequeue(), L      ' sends char   5
+  Wend
+  
+
+End
+
+' PUBLIC SUB TextIN_KeyRelease()
+'      
+' '  DIM c AS String
+'   lp = Len(TextIN.Text) 
+'       IF lp > lc THEN  ' otherwise BackSpace tx last-1
+' '         c = Right$(TextIN.Text, lp - lc)
+' '         IF c =Chr$(27) THEN    ' ESC does not work while cursor in the
+' '          Abort()               ' TextIN window....Why ???  ....try _Change 
+' '         ELSE 
+'   
+'  
+'          WRITE #UDPCLient, Right$(TextIN.Text, lp - lc), lp - lc
+' '          WRITE #UDPCLient, c, Len(c)
+'          
+'          
+'       END IF   
+'  lc = Len(TextIN.Text)
+' END
+
+
+Public Sub BClear_Click()
+  TextIN.Text = ""
+'   TxtData.Text = ""
+  CWCall.Text = ""
+  cws.Text = "599"
+  cwr.Text = "599"
+  cwname.Text = ""
+  cwqth.Text = ""
+   lc = 0
+   CWCall.SetFocus()
+End
+
+
+Public Sub Abort()
+  q.Clear
+  If RepOn.Value Then
+    RepOn.Value = False
+    RepOn.Text = "REP off"
+    Timer2.Enabled = False
+  End If
+   ' Debug "ABORT"
+   sAlt = True
+   TimerTX.Stop
+   q.Clear
+   Write #Socket1, ";b " & Chr$(255) & "\n", 5  ' stop CW
+   ' Wait 3
+   Write #Socket1, ";* 4\n", 5     ' reset
+   ' Wait 3
+   Write #Socket1, ptt0, Len(ptt0)
+   TimerTX.Start
+    Debug "ABORT"
+End
+
+
+Public Function Split25(m As String) As String[]   ' the IC-7300 accepts max 30 characters.
+  Dim i As Integer
+  Dim j As Integer = 0
+  Dim L As Integer
+  Dim ns As Integer
+  Dim r As New String[] 
+  L = Len(m)
+  ns = L Div 25
+'   Debug ns
+  r.Resize(ns + 1)
+  
+  For i = 1 To L Step 25
+          r[j] = Mid$(m, i, 25)
+          r[j] = ";b " & r[j] & "\n"
+          Debug j;; r[j]
+          Inc j
+  Next 
+  Return r
+  
+End
+
+
+Public Sub Spinwpm_Change()
+    speed = Chr$(27) & "2" & Str$(Spinwpm.Value)
+    zCWSpeed.Value = 65 - Spinwpm.Value
+'     Write #UDPCLient, speed, Len(speed)
+End
+
+
+Public Sub zCWSpeed_Change()    
+   speed = Chr$(27) & "2" & Str$(65 - zCWSpeed.Value)
+   zCWSpeed.ToolTip = 65 - zCWSpeed.Value 
+   Spinwpm.Value = 65 - zCWSpeed.Value
+'       Write #UDPCLient, speed, Len(speed)
+
+End
+
+
+Public Sub Timer1_Timer()    ' controll cw speed
+
+   Write #Socket1, ";b v\n", 5
+
+End
+
+Public Sub Timer3_Timer()    ' poll frequency
+
+   Write #Socket1, ";f\n", 3
+
+End
+
+Public Sub zCWSpeed_MouseUp()
+    Timer1.Enabled = False
+End
+
+Public Sub zCWSpeed_MouseDown()
+     Timer1.Enabled = True 
+End
+
+Public Sub FKeys()  'KC As Integer
+Debug "FKeys";; KC
+    Select Case KC
+       Case Key.Esc
+            Abort()
+       Case Key.F1            
+            F1_Click()
+       Case Key.F2            
+            F2_Click()
+       Case Key.F3            
+            F3_Click()
+       Case Key.F4            
+            F4_Click()
+       Case Key.F5          
+            F5_Click()
+       Case Key.F6
+            F6_Click()
+       Case Key.F7            
+            F7_Click()
+       Case Key.F8            
+            F8_Click()
+       Case Key.F9            
+            F9_Click()
+       Case Key.F10            
+            F10_Click()  
+       ' CASE Key.F13        ' which is which ?
+       '      CF1_Click()                      
+     End Select       
+End
+
+Public Sub Send_Long(Messaggio As String)
+  Dim i As Integer
+  Dim Testo As String[]
+  ' Sostituire i caratteri speciali
+  Messaggio = Replace$(Messaggio, "*", "^AR")
+  Messaggio = Replace$(Messaggio, "=", "^BT")
+  Messaggio = Replace$(Messaggio, "<", "^SK")
+  Messaggio = Replace$(Messaggio, "(", "^KN")
+  Messaggio = Replace$(Messaggio, "!", "^SN")
+  Messaggio = Replace$(Messaggio, ">", "^BK")
+  Messaggio = Replace$(Messaggio, "&", "^AS")
+   Testo = Split25(Messaggio)
+' controllo PTT 
+      Write #Socket1, ptt1, Len(ptt1)
+      ' q.Enqueue(ptt1)  ' non c'è differenza con la scrittura diretta si #Socket1
+      sAlt = False  ' Alt semaphore  ... usato in Abort
+       Debug Testo.Length
+       For i = 0 To Testo.Length - 1
+         ' Debug Testo[i]
+            If Not sAlt Then           
+               ' Write #Socket1, Testo[i], Len(Testo[i]) 
+               q.Enqueue(Testo[i])
+               If i < Testo.Length - 1 Then Wait 10
+            Else
+              q.Clear
+              Break
+            Endif
+       Next
+      Write #Socket1, ptt0, Len(ptt0)
+      ' q.Enqueue(ptt0)
+  
+End
+
+
+Public Sub F1_Click()
+    Dim cq As String
+    cq = "cq cq cq de " & Trim$(FMain.call$) & " " & Trim$(FMain.call$) & " ^AR k"
+    Send_Long(cq)
+    CWCall.SetFocus()
+      
+End
+
+
+Public Sub F2_Click()
+   Dim mess As String
+      mess = ";b qrz de " & Trim$(call$) & " ^AR k\n"
+      q.Enqueue(mess)
+   ' Write #Socket1, mess, Len(mess)  
+   CWCall.SetFocus()
+End
+
+Public Sub F2_Enter()
+  F2.ToolTip = "qrz de " & Trim$(call$) & "* k"
+End
+
+
+Public Sub F3_Click()
+   Dim mess As String
+      mess = ";b " & Trim$(CWCall.Text) & " ? agn\n"  
+   ' Write #Socket1, mess, Len(mess) 
+   q.Enqueue(mess)
+   CWCall.SetFocus()
+End
+
+Public Sub F3_Enter()
+  F3.ToolTip = Trim$(CWCall.Text) & "? agn" 
+End
+
+
+Public Sub F4_Click()
+   Dim mess As String
+   Dim s As String
+   
+   s = cws.Text 
+   If Not s Then 
+     s = "599"
+   End If
+      s = Replace$(s, "9", "N")
+      mess = Trim$(CWCall.Text) & " de " & call$ &
+       " tu " & cwname.text & "= ur " & s & " " & s & " = op " & nick$ &
+       " " & nick$ & " = ^AR k"  
+   
+    Send_Long(mess)
+    CWCall.SetFocus()
+   
+End
+Public Sub F4_Enter()
+  F4.ToolTip = Trim$(CWCall.Text) & " de " & call$ &
+       " tu " & cwname.text & "= ur " & "599" & " " & "599" & " = op " & nick$ &
+       " " & nick$ & " = * k"  
+End
+
+
+Public Sub F5_Click()
+Dim call As String
+
+ If CWCall.Text Then  '  se è vuoto non trasmette niente
+    call = ";b " & Trim$(CWCall.Text) & " de " & call$ & " " & call$ & " ^AR k\n"
+    ' Write #Socket1, call, Len(call)
+    q.Enqueue(call)
+ End If
+ CWCall.SetFocus()
+End
+
+Public Sub F5_Enter()
+  F5.ToolTip = Trim$(CWCall.Text) & " de " & call$ & " " & call$ & "* k"
+End
+
+Public Sub F6_Click()
+ Dim mess As String
+ Dim s As String
+   s = cws.Text 
+   If Not s Then 
+     s = "599"
+   End If
+      s = Replace$(s, "9", "N")
+      mess = Trim$(CWCall.Text) & " de " & FMain.call$ &
+       " tu dr om " & Trim$(cwname.text) & " fer rpts " & "= ur rst Is " & s & " " & s & " " & "" 
+       " = op is " & nick$ & " " & nick$ & 
+       " = qth Is " & qth$ & " " & qth$ & " = so hw? " &
+       Trim$(CWCall.Text) & " de " & call$ & "^AR k\n"  
+  
+   Send_Long(mess)
+   CWCall.SetFocus()
+End
+
+Public Sub F6_Enter()
+  F6.ToolTip = Trim$(CWCall.Text) & " de " & call$ &
+       " tu dr om " & Trim$(cwname.text) & " fer rpts = ur rst is " & "599" & " " & "599" & 
+       " = op is " & nick$ & " " & nick$ & 
+       " = qth is " & qth$ & " " & qth$ & " = so hw? " &
+       Trim$(CWCall.Text) & " de " & call$ & "^AR k"  
+End
+
+Public Sub F7_Click()
+   Dim mess As String 
+   
+   mess = Trim$(CWCall.Text) & " de " & call$ & " = tnx fer qso dr om " &
+         Trim$(cwname.text) & " = hope cuagn = best 73 gd dx =^AR k"
+   
+   Send_Long(mess)
+   CWCall.SetFocus()
+   
+End
+
+Public Sub F7_Enter()
+  F7.ToolTip = Trim$(CWCall.Text) & " de " & call$ & " = tnx fer qso dr om " &
+         Trim$(cwname.text) & " = hope cuagn = best 73 gd dx =k"
+End
+
+Public Sub F8_Click()
+
+    Write #Socket1, ptt1, Len(ptt1)
+End
+
+
+Public Sub F9_Click()
+  Dim mess As String 
+     mess = ";b " & call$ & "\n"
+   ' Write #Socket1, mes, Len(mes)
+   q.Enqueue(mess)
+   CWCall.SetFocus()
+  
+End
+
+
+Public Sub F10_Click()
+ Dim mess As String 
+     mess = ";b tu ur 5nn k\n"
+  ' Write #Socket1, mes, Len(mes)
+  q.Enqueue(mess)
+  CWCall.SetFocus()
+End
+
+Public Sub F10_Enter()
+  F10.ToolTip = "tu ur5nnk"
+End
+
+
+Public Sub CF1_Click()
+Dim cq As String
+
+   cq = "cq dx cq dx cq dx de " & Trim$(FMain.call$) & " " & Trim$(FMain.call$) & " " & Trim$(FMain.call$) & "^AR k"
+  
+    Send_Long(cq)
+    CWCall.SetFocus()
+End
+
+
+
+Public Sub CF2_Click()
+ Dim mess As String 
+ mess = ";b " & Trim$(CWCall.Text) & " de " & call$ & "\n"
+   ' Write #Socket1, mes, Len(mes)
+   q.Enqueue(mess)
+   CWCall.SetFocus()
+End
+
+Public Sub CF2_Enter()
+  CF2.ToolTip = Trim$(CWCall.Text) & " de " & call$
+End
+
+
+Public Sub CF3_Click()
+ Dim mess As String 
+     mess = ";b " & call$ & "\n" 
+   ' Write #Socket1, mes, Len(mes)
+   q.Enqueue(mess)
+ CWCall.SetFocus()
+End
+
+
+Public Sub CF4_Click()
+Dim mess As String
+Dim s As String
+
+   s = cws.Text 
+   If Not s Then 
+     s = "599"
+   End If
+      s = Replace$(s, "9", "N")
+      mess = Trim$(CWCall.Text) & " " & Trim$(CWCall.Text) & " de " & call$ &
+       " tu " & Trim$(cwname.text) & " fer call = ur rst is " & s & " " & s & 
+       " = op is " & nick$ & " " & nick$ & 
+       " = qth is " & qth$ & " " & qth$ & " = so hw? " &
+       CWCall.Text & " de " & call$ & " ^AR k"
+   
+   Send_Long(mess)
+   CWCall.SetFocus()
+End
+
+Public Sub CF4_Enter() 
+  CF4.ToolTip = Trim$(CWCall.Text) & " " & Trim$(CWCall.Text) & " de " & call$ &
+       " tu " & Trim$(cwname.text) & " fer call = ur rst is " & cws.Text & " " & cws.Text & 
+       " = op is " & nick$ & " " & nick$ & 
+       " = qth is " & qth$ & " " & qth$ & " = so hw? " &
+       CWCall.Text & " de " & call$ & " * k"  
+End
+
+
+Public Sub CF5_Click()
+ Dim mess As String 
+     mess = ";b " & Trim$(CWCall.Text) & "\n"
+   ' Write #Socket1, mes, Len(mes)
+   q.Enqueue(mess)
+   CWCall.SetFocus()
+End
+
+Public Sub CF5_Enter()
+  CF5.ToolTip = Trim$(CWCall.Text)
+End
+
+
+Public Sub CF6_Click()
+  Dim mess As String
+   Dim s As String
+   s = cws.Text 
+   If Not s Then 
+     s = "599"
+   End If
+      s = Replace$(s, "9", "N")
+      mess = ";b " & Trim$(CWCall.Text) & " " & s & "k\n"  
+   ' Write #Socket1, mess, Len(mess)
+   q.Enqueue(mess)
+   CWCall.SetFocus()
+End
+Public Sub CF6_Enter()
+   CF6.ToolTip = Trim$(CWCall.Text) & " 599" & "k" 
+ End
+
+
+Public Sub CF7_Click()
+ Dim mess As String 
+     mess = ";b r tu " & call$ & "\n"
+   ' Write #Socket1, mes, Len(mes)
+   q.Enqueue(mess)
+End
+Public Sub CF7_Enter()
+  CF7.ToolTip = "r tu " & call$
+End
+
+
+
+Public Sub CF8_Click()
+   Write #Socket1, ptt0, Len(ptt0)
+End
+
+
+Public Sub CF9_Click()
+    Write #Socket1, ";b 73\n", 6
+' Write #Socket1, ";b zp4kfx ^AR k\n", 17
+  CWCall.SetFocus()
+
+End
+Public Sub CF9_Enter()
+  CF9.ToolTip = "73"
+End
+
+Public Sub CF10_Click()
+'     Write #UDPCLient, "e" & Chr$(126) & "e", 3
+    ' Write #Socket1, "b e e\n", 7
+    q.Enqueue(";b e e\n")
+End
+
+
+Public Sub Timer2_Timer() ' Invio ripetitivo di CQ
+
+  F1_Click() ' sends CQ
+
+End
+
+
+Public Sub RepOn_Click()
+ If RepOn.Value = True Then
+    RepOn.Text = "REP on"
+    Timer2.Enabled = True
+       ' If FMain.Run = False Then 
+       '  FMain.ToggleRun.Value = True
+       '  FMain.ToggleRun_Click()
+       ' End If
+    F1_Click()
+ Else
+    RepOn.Text = "REP off"
+    Timer2.Enabled = False
+       ' If FMain.Run = True Then 
+       '  FMain.ToggleRun.Value = False
+       '  FMain.ToggleRun_Click()
+       ' End If
+ End If       
+End
+
+
+Public Sub SpinRep_Change()
+' NOTE ! this is time between starts, not between the end of one message   CQ repete
+' and start of the following. This is due to cwdaemon beheviour...no way to know when message ends
+  Timer2.Delay = SpinRep.Value * 1000
+' Changing the Delay resets the timer !!! sorry
+' Don't know how to manage it
+End
+
+
+Public Sub cwstart_Click()
+Dim GMT, GMTdate As Date
+        ' GMT = Vb.DateAdd("h", -toffset, Now)
+        GMT = Time(DateAdd(Now(), gb.second, System.TimeZone))
+        GMTdate = Date(DateAdd(Now(), gb.second, System.TimeZone))
+        StartTime = Time(Hour(GMT), Minute(GMT), Second(GMT)) ' get end time  
+        QSODate = Day(GMTdate) & "/" & Month(GMTdate) & "/" & Year(GMTdate)
+'         Debug "QSO Start", StartTime, QSODate
+        RXArea.Text = RXArea.Text & "\nQSO starts at " & Str(StartTime) & " of " & QSODate
+End
+
+
+Public Sub getcountry()
+  ' cwcountry.Text = FMain.cwcountry
+  ' cwcont.Text = FMAin.cwcont
+End
+
+
+Public Sub CWCall_LostFocus()
+
+ cdx = world.findEntity(CWCall.Text)
+ cwcountry.Text = cdx.entity
+ cwcont.Text = cdx.continent
+End
+
+
+Public Sub Clearrx_Click()
+
+  RXArea.Text = ""
+
+End
+
+Public Sub ginput_Change()
+
+CWCall.Text = UCase(CWCall.Text)
+ cdx = world.findEntity(CWCall.Text)
+ cwcountry.Text = cdx.entity
+ cwcont.Text = cdx.continent
+ Catch
+
+End
+
+
+Public Sub ComboBand_Change()
+
+  
+
+End
+
+
+' Public Sub Sport_Read()
+'     Dim s As String
+'     Dim L As Integer
+'     Dim i As Integer
+'     Dim cleanChar As String
+'     
+'     L = Lof(Sport)
+'     Read #Sport, s, L
+'     
+'     ' Filtra caratteri problematici
+'     cleanChar = ""
+'     For i = 1 To Len(s)
+'         Dim charCode As Integer = Asc(Mid$(s, i, 1))
+'         If charCode >= 32 And charCode <= 126 Then  ' Solo ASCII stampabili
+'             cleanChar &= Mid$(s, i, 1)
+'         Else If charCode = 10 Or charCode = 13 Then  ' Newline/Return
+'             cleanChar &= Mid$(s, i, 1)
+'         Else
+'             cleanChar &= "?"  ' Sostituisci caratteri strani
+'         Endif
+'     Next
+'     
+'     s = cleanChar
+'     Debug "Cleaned: [" & s & "]"
+'     
+'     RXArea.Text &= s
+'     If Len(RXArea.text) > 250 Then
+'         RXArea.Text = Right$(RXArea.text, 200)
+'     Endif
+' End Sub
+
+Public Sub Sport_Read() ' Legge dati dal decodificatore CW Arduino
+Dim s As String
+   Dim L As Integer
+   ' Dim s As String
+   
+  
+    L = Lof(Sport)
+    Read #Sport, s, L
+    Debug s
+ 
+    ' Try s = Conv$(s, "ISO-8859-1", "UTF-8")
+    ' If Error Then
+    '    Debug "err ", s  
+    '      s = ""
+    '  Else 
+    '      Debug s
+    ' Endif 
+    
+    RXArea.Text = RXArea.text & s
+    If Len(RXArea.text) > 250 Then
+      RXArea.Text = Right$(RXArea.text, 200)
+    Endif
+    
+
+End
+
+Public Sub Check_Status()
+
+   ' ChkDSR.Value = Sport.DSR
+   ' ChkDTR.Value = Sport.DTR
+   ' ChkCTS.Value = Sport.CTS
+   ' ChkRTS.Value = Sport.RTS
+   ' ChkDCD.Value = Sport.DCD
+   ' ChkRNG.Value = Sport.RNG
+ 
+ 
+ End
+ 
+ Public Sub ApriSPort()
+  If Exist("/dev/ttyACM0") Then
+    Sport.PortName = "/dev/ttyACM0"  ' "dev/IC-730"   '"/dev/ttyS3" 
+    Arduino.text = "Arduino on /dev/ttyACM0"
+    Sport.Speed = "9600"
+  Else If Exist("/dev/ttyACM1") Then
+    Sport.PortName = "/dev/ttyACM1" 
+    Arduino.text = "Arduino on /dev/ttyACM1"
+    Sport.Speed = "9600"
+  Else If Exist("/dev/ttyACM2") Then
+    Sport.PortName = "/dev/ttyACM2" 
+    Arduino.text = "Arduino on /dev/ttyACM2"
+    Sport.Speed = "9600"
+    Else If Exist("/dev/ttyUSB1") Then
+    Sport.PortName = "/dev/ttyUSB1" 
+    Arduino.text = "Arduino on /dev/ttyUSB1"
+    Sport.Speed = "115200"
+  Else
+    Print "Arduino not found"
+    Message.error("Arduino not found")
+    Arduino.text = "Arduino disconnected"
+  Endif
+    
+    ' Sport.Speed = "9600"  '"38400" '"19200"   '"115200"   '"9600"
+    ' Sport.Parity = "0"
+    ' Sport.DataBits = "8"
+    ' Sport.StopBits = "1"
+    ' Sport.FlowControl = "0"
+  
+      Sport.Open()
+         ' Sport.RTS = False
+         ' Sport.DTR = False
+         ' Check_Status()   ' does nothing by now
+         
+     ' TextArea1.Text = "Port Opened : " & Sport.PortName & " Settings : " &
+     ' Sport.Speed & "," & Sport.Parity & "," & Sport.DataBits & "," &
+     ' Sport.StopBits & Chr(13) & Chr(10)
+  
+End
+
+Public Sub Button1_Click()
+
+  Abort()
+
+End
+
+
+Public Sub Button2_Click()
+  ' Svuota la coda
+  While Not q.IsEmpty
+    Print q.Dequeue()
+  Wend
+
+End

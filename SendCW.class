@@ -1,0 +1,16 @@
+' Gambas class file
+
+Inherits Task
+
+Public Sub Main() As Variant
+   Print "Entra nel task"
+   ' Svuota la coda
+  While True
+    ' FMain.Button2_Click()
+      If Not FMain.q.IsEmpty Then 
+          Print "Task Dequeue "; FMain.q.Dequeue()
+          Print "Task Size "; FMain.q.Size
+          Wait
+      Endif 
+  Wend
+End
